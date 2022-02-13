@@ -6,9 +6,11 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.ChronoField;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.csv.CSVRecord;
@@ -57,6 +59,17 @@ public class CSVRestaurantService {
      *
      */
     public static Option<Restaurant> parse(final CSVRecord r) {
+        try {
+            String name = r.get(0);
+            String openhoursString = r.get(1);
+            Map<DayOfWeek, Restaurant.OpenHours> openHoursMap = parseOpenHour(openhoursString);
+            if (!openHoursMap.isEmpty()) {
+                Restaurant restaurant = new Restaurant(name, openHoursMap);
+                return Option.some(restaurant);
+            }
+        } catch (Exception ex) {
+            return Option.none();
+        }
         return Option.none();
     }
 
@@ -64,7 +77,24 @@ public class CSVRestaurantService {
      * TODO: Implement me, This is a useful helper method
      */
     public static Map<DayOfWeek, Restaurant.OpenHours> parseOpenHour(final String openhoursString) {
-        return Collections.emptyMap();
+        Map<DayOfWeek, Restaurant.OpenHours> openHoursMap = new HashMap<>();
+        String[] openHoursArray = openhoursString.split(";");
+        for (String openHourGroup: openHoursArray) {
+            String[] openHourArray = openHourGroup.split("\\|");
+            String[] days = openHourArray[0].split(",");
+            String[] times = openHourArray[1].split("-");
+            if (times[0].equals(times[1])) return Collections.emptyMap();
+            Restaurant.OpenHours openHours = new Restaurant.OpenHours(parseTimeFromString(times[0]),
+                    parseTimeFromString(times[1]));
+            for (String day: days) {
+                openHoursMap.put(getDayOfWeek(day).get(), openHours);
+            }
+        }
+        return openHoursMap;
+    }
+
+    private static LocalTime parseTimeFromString(final String timeString) {
+        return LocalTime.of(Integer.parseInt(timeString.substring(0, 2)), Integer.parseInt(timeString.substring(3)));
     }
 
     public CSVRestaurantService() throws IOException {
@@ -101,7 +131,29 @@ public class CSVRestaurantService {
      *
      */
     public List<Restaurant> getOpenRestaurants(final DayOfWeek dayOfWeek, final LocalTime localTime) {
-        return Collections.emptyList();
+        List<Restaurant> restaurants = restaurantList.stream().filter(r -> openRestaurant(r, dayOfWeek, localTime)).
+                collect(Collectors.toList());
+        return restaurants;
+    }
+
+    private static boolean openRestaurant(final Restaurant restaurant, final DayOfWeek dayOfWeek, final LocalTime localTime) {
+        if (restaurant.getOpenHoursMap().containsKey(dayOfWeek)) {
+            Restaurant.OpenHours openHours = restaurant.getOpenHoursMap().get(dayOfWeek);
+            if (localTime.isAfter(openHours.getStartTime()) && (localTime.isBefore(openHours.getEndTime()))) {
+                return true;
+            }
+
+            DayOfWeek previousDay = dayOfWeek.minus(1);
+
+            if (restaurant.getOpenHoursMap().containsKey(previousDay)) {
+                openHours = restaurant.getOpenHoursMap().get(previousDay);
+            }
+            if (openHours.spansMidnight()) {
+                return (localTime.isBefore(openHours.getEndTime())) &&
+                        localTime.isBefore(LocalTime.of(5, 0));
+            }
+        }
+        return false;
     }
 
     public List<Restaurant> getOpenRestaurantsForLocalDateTime(final LocalDateTime localDateTime) {
